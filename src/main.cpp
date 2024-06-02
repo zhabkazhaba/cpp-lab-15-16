@@ -1,29 +1,18 @@
 #include <iostream>
+#include <chrono>
 #include "Matrix.hpp"
+#include "MatrixTest.hpp"
 
-using namespace std;
+using mt = MatrixTest;
 
 int main() {
-    cout << boolalpha;
-    Matrix<float> Mat1(2, 2);
-    Mat1.initialize();
-    Matrix<float> Mat2(1, 1);
-    Mat2.initialize();
-    Mat1.readFromFile();
-    Mat1.print();
+    std::cout << std::boolalpha;
+    std::pair<unsigned int, unsigned int> range1 = {1,700};
+    std::pair<unsigned int, unsigned int> range2 = {1, 7};
 
-    if (Mat1 == 3.0) {
-        cout << true << endl;
-    } else {
-        cout << false << endl;
-    }
-
-    Mat1 + Mat2;
-    Mat1.print();
-
-    cout << Mat1.getDeterminant() << endl;
-    !Mat1;
-    Mat1.print();
-    //Mat1.writeToFile();
+    //mt::printResults(mt::runConstThreads(TEST_MODE::SUM, range1, 50, 4));
+    mt::printResults(mt::runConstThreads(TEST_MODE::MUL, range1, 20, 6));
+    std::cout << "--------------------------------" << std::endl;
+    //mt::printResults(mt::runConstThreads(TEST_MODE::MUL, range, 5, 4));
     return 0;
 }

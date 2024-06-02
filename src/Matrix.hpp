@@ -7,12 +7,15 @@
 #include <fstream>
 #include <cstring>
 #include <sstream>
+#include <thread>
+#include <future>
+#include <vector>
+#include <algorithm>
 
 template<typename T, typename = typename std::enable_if<std::is_arithmetic<T>::value>::type>
 class Matrix {
  private:
-    long int row_num;
-    long int col_num;
+    long int row_num, col_num;
     T** data;
 
  public:
@@ -105,6 +108,14 @@ class Matrix {
         }
     }
 
+    void initializeWithNumbers() {
+        for (unsigned int i = 0; i < row_num; ++i) {
+            for (unsigned int j = 0; j < col_num; ++j) {
+                data[i][j] = i;
+            }
+        }
+    }
+
     static Matrix<T> id(long int n) {
         Matrix<T> result(n,n);
         for (unsigned int i = 0; i < n; ++i) {
@@ -118,12 +129,50 @@ class Matrix {
         }
         return result;
     }
+
+    static Matrix<T> parallelId(long int n) {
+        Matrix<T> result(n,n);
+        std::thread threads[n];
+        for (unsigned int i = 0; i < n; ++i) {
+            threads[i] = std::thread([i, &result, n](){
+                for (unsigned int j = 0; j < n; ++j) {
+                    if (i == j) {
+                        result.data[i][j] = 1;
+                    } else {
+                        result.data[i][j] = 0;
+                    }
+                }
+            });
+        }
+        for (unsigned int i = 0; i < n; ++i) {
+            threads[i].join();
+        }
+        return result;
+    }
+
     static Matrix<T> zero(long int m, long int n) {
         Matrix<T> result(m,n);
         for (unsigned int i = 0; i < m; ++i) {
             for (unsigned int j = 0; j < n; ++j) {
                 result.data[i][j] = 0;
             }
+        }
+
+        return result;
+    }
+
+    static Matrix<T> parallelZero(long int m, long int n) {
+        Matrix<T> result(m,n);
+        std::thread threads[m];
+        for (unsigned int i = 0; i < m; ++i) {
+            threads[i] = std::thread([i, &result, n](){
+                for (unsigned int j = 0; j < n; ++j) {
+                    result.data[i][j] = 0;
+                }
+            });
+        }
+        for (unsigned int i = 0; i < m; ++i) {
+            threads[i].join();
         }
         return result;
     }
@@ -236,7 +285,7 @@ class Matrix {
             }
         }
     }
-    void operator+(const Matrix &second) const {
+    void operator+(const Matrix &second) {
         if (row_num == second.row_num and col_num == second.col_num) {
             for (unsigned int i = 0; i < row_num; ++i) {
                 for (unsigned int j = 0; j < col_num; ++j) {
@@ -247,12 +296,77 @@ class Matrix {
             std::cerr << "Error: Matrices have to be same size\n";
         }
     }
+    void serialSum(const Matrix &second) const {
+        if (row_num == second.row_num and col_num == second.col_num) {
+            for (unsigned int i = 0; i < row_num; ++i) {
+                for (unsigned int j = 0; j < col_num; ++j) {
+                    data[i][j] = data[i][j] + second.data[i][j];
+                }
+            }
+        } else {
+            std::cerr << "Error: Matrices have to be same size\n";
+        }
+    }
+    void parallelSum(const Matrix &second, unsigned int num_threads = std::thread::hardware_concurrency()) const {
+        std::vector<std::future<void>> futures;
+        unsigned int block_size;
+        if (row_num < num_threads)
+            block_size = 1;
+        else
+            block_size = row_num / num_threads;
+        for (unsigned int i = 0; i < row_num; i += block_size) {
+            unsigned int block_end_row = std::min(i + block_size, static_cast<unsigned int>(row_num));
+            futures.emplace_back(std::async(std::launch::async, [this, &second, i, block_end_row]  {
+                for (unsigned int bi = i; bi < block_end_row; ++bi) {
+                    for (unsigned int bj = 0; bj < col_num; ++bj) {
+                        data[bi][bj] = this->data[bi][bj] + second.data[bi][bj];
+                    }
+                }
+            }));
+        }
+        for (auto &f : futures) {
+            f.get();
+        }
+    }
+    void parallelBlockSum(const Matrix &second, unsigned int block_size) const {
+        std::vector<std::future<void>> futures;
+        for (unsigned int i = 0; i < row_num; i += block_size) {
+            unsigned int block_end_row = std::min(i + block_size, static_cast<unsigned int>(row_num));
+            futures.emplace_back(std::async(std::launch::async, [this, &second, i, block_end_row]  {
+                for (unsigned int bi = i; bi < block_end_row; ++bi) {
+                    for (unsigned int bj = 0; bj < col_num; ++bj) {
+                        data[bi][bj] = this->data[bi][bj] + second.data[bi][bj];
+                    }
+                }
+            }));
+        }
+        for (auto &f : futures) {
+            f.get();
+        }
+    }
     void operator-(const Matrix &second) const {
         if (row_num == second.row_num and col_num == second.col_num) {
             for (unsigned int i = 0; i < row_num; ++i) {
                 for (unsigned int j = 0; j < col_num; ++j) {
                     data[i][j] = data[i][j] - second.data[i][j];
                 }
+            }
+        } else {
+            std::cerr << "Error: Matrices have to be same size\n";
+        }
+    }
+    void parallelSub(const Matrix &second) const {
+        if (row_num == second.row_num and col_num == second.col_num) {
+            std::thread threads[row_num];
+            for (unsigned int i = 0; i < row_num; ++i) {
+                threads[i] = std::thread([i, &second, this](){
+                    for (unsigned int j = 0; j < col_num; ++j) {
+                        data[i][j] = data[i][j] - second.data[i][j];
+                    }
+                });
+            }
+            for (unsigned int i = 0; i < row_num; ++i) {
+                threads[i].join();
             }
         } else {
             std::cerr << "Error: Matrices have to be same size\n";
@@ -272,6 +386,67 @@ class Matrix {
             }
         } else {
             std::cerr << "Error: Cols number should be same as rows number\n";
+        }
+    }
+    void serialMul(const Matrix &second) {
+        double sum;
+        if (col_num == second.row_num) {
+            for (unsigned int i = 0; i < row_num; i++) {
+                for (unsigned int j = 0; j < second.col_num; ++j) {
+                    sum = 0;
+                    for (unsigned int k = 0; k < col_num; ++k) {
+                        sum += data[i][k] * second.data[k][j];
+                    }
+                    data[i][j] = sum;
+                }
+            }
+        } else {
+            std::cerr << "Error: Cols number should be same as rows number\n";
+        }
+    }
+    void parallelMul(const Matrix &second, unsigned int num_threads = std::thread::hardware_concurrency()) {
+        unsigned int block_size;
+        if (row_num < num_threads)
+            block_size = 1;
+        else
+            block_size = row_num / num_threads;
+        std::vector<std::future<void>> futures;
+        for (unsigned int i = 0; i < row_num; i += block_size) {
+            unsigned int block_end_row = std::min(i + block_size, static_cast<unsigned int>(row_num));
+            futures.emplace_back(std::async(std::launch::async, [this, &second, i, block_end_row] {
+                for (unsigned int bi = i; bi < block_end_row; ++bi) {
+                    for (unsigned int j = 0; j < second.col_num; ++j) {
+                        double sum = 0;
+                        for (unsigned int k = 0; k < col_num; ++k) {
+                            sum += data[bi][k] * second.data[k][j];
+                        }
+                        data[bi][j] = sum;
+                    }
+                }
+            }));
+        }
+        for (auto &f : futures) {
+            f.get();
+        }
+    }
+    void parallelBlockMul(const Matrix &second, unsigned int block_size) {
+        std::vector<std::future<void>> futures;
+        for (unsigned int i = 0; i < row_num; i += block_size) {
+            unsigned int block_end_row = std::min(i + block_size, static_cast<unsigned int>(row_num));
+            futures.emplace_back(std::async(std::launch::async, [this, &second, i, block_end_row] {
+                for (unsigned int bi = i; bi < block_end_row; ++bi) {
+                    for (unsigned int j = 0; j < second.col_num; ++j) {
+                        double sum = 0;
+                        for (unsigned int k = 0; k < col_num; ++k) {
+                            sum += data[bi][k] * second.data[k][j];
+                        }
+                        data[bi][j] = sum;
+                    }
+                }
+            }));
+        }
+        for (auto &f : futures) {
+            f.get();
         }
     }
     void operator*(double factor) const {
@@ -438,6 +613,27 @@ class Matrix {
                     k += 1;
                 }
             }
+        }
+        Minor.twodify(data_1d);
+        return Minor;
+    }
+    Matrix parallelMakeMinor(long int i, long int j) {
+        int k = 0;
+        Matrix Minor(row_num - 1, col_num - 1);
+        double data_1d[Minor.row_num * Minor.col_num];
+        std::thread threads[Minor.row_num];
+        for (unsigned int sub_i = 0; sub_i <= Minor.row_num; ++sub_i) {
+            threads[sub_i] = std::thread([sub_i, &Minor, &data_1d, &k, this, i, j](){
+                for (unsigned int sub_j = 0; sub_j <= Minor.col_num; ++sub_j) {
+                    if (sub_i != i && sub_j != j) {
+                        data_1d[k] = data[sub_i][sub_j];
+                        k += 1;
+                    }
+                }
+            });
+        }
+        for (unsigned int sub_i = 0; sub_i <= Minor.row_num; ++sub_i) {
+            threads[sub_i].join();
         }
         Minor.twodify(data_1d);
         return Minor;
